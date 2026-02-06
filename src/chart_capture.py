@@ -337,10 +337,18 @@ class ChartCapture:
             url = f"{self.PNF_URL}?c={symbol},P"
             logger.info(f"Capturing P&F {period} chart for {symbol}")
 
-            await page.goto(url, wait_until="load", timeout=15000)
+            # Use domcontentloaded - "load" times out due to slow ads
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
 
-            # Wait for page to settle
-            await page.wait_for_timeout(1000)
+            # Wait for the P&F chart image to appear (not all resources)
+            try:
+                await page.locator('img[src*="/c-sc/"]').first.wait_for(state="visible", timeout=10000)
+            except PlaywrightTimeout:
+                # Try alternative selector
+                try:
+                    await page.locator('center img').first.wait_for(state="visible", timeout=5000)
+                except PlaywrightTimeout:
+                    logger.debug("Chart image not found, continuing anyway")
 
             # Set the period if weekly
             if period.lower() == "weekly":
@@ -354,9 +362,13 @@ class ChartCapture:
                     if await update_btn.is_visible(timeout=2000):
                         await update_btn.click()
                         logger.info("Clicked P&F Update button")
-                        # Wait for page to reload
-                        await page.wait_for_load_state("load", timeout=15000)
-                        await page.wait_for_timeout(1000)
+                        # Wait for page to reload - use domcontentloaded, not load
+                        await page.wait_for_load_state("domcontentloaded", timeout=15000)
+                        # Wait for chart image
+                        try:
+                            await page.locator('img[src*="/c-sc/"]').first.wait_for(state="visible", timeout=5000)
+                        except PlaywrightTimeout:
+                            pass
 
             # Find and save the P&F chart image - try multiple selectors
             pnf_selectors = [
