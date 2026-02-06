@@ -1,5 +1,6 @@
 """Claude API integration with Edwards & Magee technical analysis prompt."""
 
+import asyncio
 import base64
 import json
 import logging
@@ -8,8 +9,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import anthropic
+from anthropic import AsyncAnthropic
 
-from .utils import ensure_env_vars, retry
+from .utils import ensure_env_vars, async_retry
 
 logger = logging.getLogger("stockcharts")
 
@@ -137,7 +139,7 @@ class AnalysisResult:
 
 
 class ClaudeAnalyzer:
-    """Analyzes stock charts using Claude API."""
+    """Analyzes stock charts using Claude API with async support."""
 
     def __init__(self, config: dict):
         """
@@ -150,9 +152,9 @@ class ClaudeAnalyzer:
         self.model = self.config.get("model", "claude-sonnet-4-20250514")
         self.max_tokens = self.config.get("max_tokens", 2000)
 
-        # Load API key
+        # Load API key and create async client
         env_vars = ensure_env_vars("ANTHROPIC_API_KEY")
-        self.client = anthropic.Anthropic(api_key=env_vars["ANTHROPIC_API_KEY"])
+        self.client = AsyncAnthropic(api_key=env_vars["ANTHROPIC_API_KEY"])
 
     def _load_image_base64(self, image_path: Path) -> str:
         """Load an image file and convert to base64."""
@@ -210,8 +212,8 @@ class ClaudeAnalyzer:
             raw_response=response_text,
         )
 
-    @retry(max_attempts=3, delay=2.0, exceptions=(anthropic.APIError,))
-    def analyze(self, image_paths: dict[str, Path], symbol: str) -> AnalysisResult:
+    @async_retry(max_attempts=3, delay=2.0, exceptions=(anthropic.APIError,))
+    async def analyze(self, image_paths: dict[str, Path], symbol: str) -> AnalysisResult:
         """
         Analyze daily and weekly chart images using Claude.
 
@@ -297,8 +299,8 @@ class ClaudeAnalyzer:
             "text": f"Stock Symbol: {symbol}\n\n{EDWARDS_MAGEE_PROMPT}",
         })
 
-        # Send to Claude
-        message = self.client.messages.create(
+        # Send to Claude (async)
+        message = await self.client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
             messages=[
@@ -313,3 +315,41 @@ class ClaudeAnalyzer:
         logger.debug(f"Claude response for {symbol}: {response_text[:200]}...")
 
         return self._parse_response(response_text, symbol)
+
+    async def analyze_batch(
+        self,
+        all_image_paths: dict[str, dict[str, Path]],
+        max_concurrent: int = 5,
+    ) -> list[AnalysisResult]:
+        """
+        Analyze multiple tickers concurrently with rate limiting.
+
+        Args:
+            all_image_paths: Dict mapping symbol to its image paths dict
+            max_concurrent: Maximum concurrent API requests
+
+        Returns:
+            List of AnalysisResult objects for successful analyses
+        """
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async def analyze_with_limit(symbol: str, paths: dict[str, Path]) -> AnalysisResult:
+            async with semaphore:
+                return await self.analyze(paths, symbol)
+
+        tasks = [
+            analyze_with_limit(symbol, paths)
+            for symbol, paths in all_image_paths.items()
+        ]
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Filter out exceptions and log them
+        valid_results = []
+        for symbol, result in zip(all_image_paths.keys(), results):
+            if isinstance(result, Exception):
+                logger.error(f"Analysis failed for {symbol}: {result}")
+            else:
+                valid_results.append(result)
+
+        return valid_results

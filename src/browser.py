@@ -1,16 +1,16 @@
-"""Playwright browser management."""
+"""Playwright browser management with async support."""
 
 import logging
-from contextlib import contextmanager
-from typing import Generator
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
 
-from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
+from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
 
 logger = logging.getLogger("stockcharts")
 
 
-class BrowserManager:
-    """Manages Playwright browser lifecycle."""
+class AsyncBrowserManager:
+    """Manages Playwright browser lifecycle with async support."""
 
     def __init__(self, config: dict):
         """
@@ -27,28 +27,28 @@ class BrowserManager:
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
 
-    def start(self) -> None:
+    async def start(self) -> None:
         """Start the Playwright browser."""
         logger.info(f"Starting browser (headless={self.headless})")
-        self._playwright = sync_playwright().start()
-        self._browser = self._playwright.chromium.launch(
+        self._playwright = await async_playwright().start()
+        self._browser = await self._playwright.chromium.launch(
             headless=self.headless,
             args=["--disable-blink-features=AutomationControlled"],
         )
 
-    def stop(self) -> None:
+    async def stop(self) -> None:
         """Stop the browser and cleanup."""
         if self._browser:
             logger.info("Closing browser")
-            self._browser.close()
+            await self._browser.close()
             self._browser = None
 
         if self._playwright:
-            self._playwright.stop()
+            await self._playwright.stop()
             self._playwright = None
 
-    @contextmanager
-    def new_context(self) -> Generator[BrowserContext, None, None]:
+    @asynccontextmanager
+    async def new_context(self) -> AsyncGenerator[BrowserContext, None]:
         """
         Create a new browser context.
 
@@ -58,7 +58,7 @@ class BrowserManager:
         if not self._browser:
             raise RuntimeError("Browser not started. Call start() first.")
 
-        context = self._browser.new_context(
+        context = await self._browser.new_context(
             viewport=self.viewport,
             user_agent=(
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -71,28 +71,28 @@ class BrowserManager:
         try:
             yield context
         finally:
-            context.close()
+            await context.close()
 
-    @contextmanager
-    def new_page(self) -> Generator[Page, None, None]:
+    @asynccontextmanager
+    async def new_page(self) -> AsyncGenerator[Page, None]:
         """
         Create a new page in a fresh context.
 
         Yields:
             Page for browser interaction
         """
-        with self.new_context() as context:
-            page = context.new_page()
+        async with self.new_context() as context:
+            page = await context.new_page()
             try:
                 yield page
             finally:
-                page.close()
+                await page.close()
 
-    def __enter__(self) -> "BrowserManager":
-        """Context manager entry."""
-        self.start()
+    async def __aenter__(self) -> "AsyncBrowserManager":
+        """Async context manager entry."""
+        await self.start()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Context manager exit."""
-        self.stop()
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Async context manager exit."""
+        await self.stop()

@@ -1,5 +1,6 @@
 """Utility functions for logging, config loading, and retry logic."""
 
+import asyncio
 import logging
 import os
 import time
@@ -96,6 +97,49 @@ def retry(
                             f"Retrying in {current_delay:.1f}s..."
                         )
                         time.sleep(current_delay)
+                        current_delay *= backoff
+
+            raise last_exception
+
+        return wrapper
+
+    return decorator
+
+
+def async_retry(
+    max_attempts: int = 3,
+    delay: float = 1.0,
+    backoff: float = 2.0,
+    exceptions: tuple = (Exception,),
+) -> Callable:
+    """
+    Async retry decorator with exponential backoff.
+
+    Args:
+        max_attempts: Maximum number of retry attempts
+        delay: Initial delay between retries in seconds
+        backoff: Multiplier for delay after each retry
+        exceptions: Tuple of exceptions to catch and retry
+    """
+
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        async def wrapper(*args, **kwargs) -> Any:
+            current_delay = delay
+            last_exception = None
+
+            for attempt in range(max_attempts):
+                try:
+                    return await func(*args, **kwargs)
+                except exceptions as e:
+                    last_exception = e
+                    if attempt < max_attempts - 1:
+                        logger = logging.getLogger("stockcharts")
+                        logger.warning(
+                            f"Attempt {attempt + 1}/{max_attempts} failed for {func.__name__}: {e}. "
+                            f"Retrying in {current_delay:.1f}s..."
+                        )
+                        await asyncio.sleep(current_delay)
                         current_delay *= backoff
 
             raise last_exception
