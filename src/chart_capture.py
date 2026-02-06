@@ -177,8 +177,8 @@ class ChartCapture:
             if await range_button.is_visible(timeout=3000):
                 await range_button.click()
 
-                # Wait for dropdown menu to appear
-                await page.wait_for_selector('button.ellipsis-overflow', timeout=2000)
+                # Wait for dropdown to open - small delay since selector is ambiguous
+                await page.wait_for_timeout(500)
 
                 # Click the desired range option
                 option_selectors = [
@@ -191,7 +191,7 @@ class ChartCapture:
                 for selector in option_selectors:
                     try:
                         option = page.locator(selector).first
-                        if await option.is_visible(timeout=500):
+                        if await option.is_visible(timeout=1000):
                             await option.click()
                             logger.info(f"Set range to {range_value}")
                             clicked = True
@@ -337,10 +337,10 @@ class ChartCapture:
             url = f"{self.PNF_URL}?c={symbol},P"
             logger.info(f"Capturing P&F {period} chart for {symbol}")
 
-            await page.goto(url, wait_until="domcontentloaded")
+            await page.goto(url, wait_until="load", timeout=15000)
 
-            # Wait for P&F chart image to load
-            await page.locator('img[src*="c-sc"]').first.wait_for(state="visible", timeout=5000)
+            # Wait for page to settle
+            await page.wait_for_timeout(1000)
 
             # Set the period if weekly
             if period.lower() == "weekly":
@@ -355,15 +355,20 @@ class ChartCapture:
                         await update_btn.click()
                         logger.info("Clicked P&F Update button")
                         # Wait for page to reload
-                        await page.wait_for_load_state("load", timeout=10000)
+                        await page.wait_for_load_state("load", timeout=15000)
+                        await page.wait_for_timeout(1000)
 
-            # Find and save the P&F chart image
+            # Find and save the P&F chart image - try multiple selectors
             pnf_selectors = [
+                'img[src*="/c-sc/"]',
                 'img[src*="c-sc"]',
                 'img[src*="pnf"]',
-                '#pnfChart',
+                'img[src*="freecharts"]',
+                '#pnfChart img',
                 '.pnf-chart img',
                 'img[alt*="Point"]',
+                'center img',  # P&F charts are often in a center tag
+                'table img[src*=".png"]',
             ]
 
             for selector in pnf_selectors:
@@ -372,9 +377,12 @@ class ChartCapture:
                     if await img.is_visible(timeout=2000):
                         img_src = await img.get_attribute("src")
                         if img_src:
+                            logger.debug(f"Found P&F image with selector {selector}: {img_src[:80]}...")
                             # Make sure URL is absolute
                             if img_src.startswith("/"):
                                 img_src = f"https://stockcharts.com{img_src}"
+                            elif not img_src.startswith("http"):
+                                img_src = f"https://stockcharts.com/{img_src}"
 
                             response = await page.request.get(img_src)
                             if response.ok:
@@ -383,26 +391,34 @@ class ChartCapture:
                                     f.write(body)
                                 logger.info(f"Saved P&F chart to {save_path}")
                                 return True
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Selector {selector} failed: {e}")
                     continue
 
             # Fallback: screenshot the main content area
+            logger.debug("Trying screenshot fallback for P&F chart")
             try:
                 container_selectors = [
+                    'center',
                     '#chartContainer',
                     '.chart-container',
                     '#pnfChartContainer',
-                    'table img',
+                    'table',
+                    'body',
                 ]
                 for selector in container_selectors:
-                    container = page.locator(selector).first
-                    if await container.is_visible(timeout=1000):
-                        await container.screenshot(path=str(save_path))
-                        logger.info(f"Saved P&F screenshot to {save_path}")
-                        return True
+                    try:
+                        container = page.locator(selector).first
+                        if await container.is_visible(timeout=1000):
+                            await container.screenshot(path=str(save_path))
+                            logger.info(f"Saved P&F screenshot to {save_path}")
+                            return True
+                    except Exception:
+                        continue
             except Exception as e:
                 logger.warning(f"Error screenshotting P&F container: {e}")
 
+            logger.warning(f"Could not capture P&F {period} chart for {symbol}")
             return False
 
         except Exception as e:
