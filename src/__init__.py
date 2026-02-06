@@ -1,0 +1,1 @@
+"""Stock chart analysis package."""

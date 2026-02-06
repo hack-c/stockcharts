@@ -1,0 +1,28 @@
+# Stock Chart Analysis Configuration
+
+chart:
+  type: "candlestick"
+  period: "9 months"
+  indicators:
+    - name: "RSI"
+      period: 14
+
+browser:
+  headless: true
+  timeout: 30000  # milliseconds
+  viewport:
+    width: 1920
+    height: 1080
+
+email:
+  recipients:
+    - "charles.t.hack@gmail.com"
+  subject_prefix: "[Stockcharts Analysis]"
+
+analysis:
+  model: "claude-opus-4-5-20251101"
+  max_tokens: 5000
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
