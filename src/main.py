@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Main entry point for stock chart analysis workflow."""
+"""Main entry point for stock chart analysis workflow with parallel processing."""
 
 import argparse
+import asyncio
 import logging
 import sys
 from datetime import datetime
 from pathlib import Path
 
-from .browser import BrowserManager
+from .browser import AsyncBrowserManager
 from .chart_capture import ChartCapture
 from .claude_analysis import AnalysisResult, ClaudeAnalyzer
 from .email_sender import EmailSender
@@ -68,75 +69,97 @@ Examples:
         help="Enable verbose logging",
     )
 
+    parser.add_argument(
+        "--max-concurrent",
+        type=int,
+        default=3,
+        help="Maximum concurrent ticker processing (default: 3)",
+    )
+
     return parser.parse_args()
 
 
-def run_analysis(
+async def run_analysis_async(
     config: dict,
     tickers: list[dict],
     send_email: bool = True,
     dry_run: bool = False,
+    max_concurrent_tickers: int = 3,
 ) -> tuple[list[AnalysisResult], dict[str, dict[str, Path]]]:
     """
-    Run the chart analysis workflow.
+    Run the chart analysis workflow with parallel processing.
 
     Args:
         config: Configuration dictionary
         tickers: List of ticker dictionaries with 'symbol' and 'name'
         send_email: Whether to send the email report
         dry_run: If True, skip Claude analysis
+        max_concurrent_tickers: Maximum tickers to process concurrently
 
     Returns:
-        Tuple of (results list, screenshots dict mapping symbol to {daily, weekly} paths)
+        Tuple of (results list, screenshots dict mapping symbol to chart paths)
     """
     logger = logging.getLogger("stockcharts")
 
-    results: list[AnalysisResult] = []
     screenshots: dict[str, dict[str, Path]] = {}
     errors: list[tuple[str, Exception]] = []
 
     # Initialize components
     chart_capture = ChartCapture(config)
+    analyzer = ClaudeAnalyzer(config) if not dry_run else None
 
-    if not dry_run:
-        analyzer = ClaudeAnalyzer(config)
+    # Phase 1: Parallel chart capture
+    logger.info(f"Starting parallel chart capture (max {max_concurrent_tickers} concurrent)")
 
-    if send_email and not dry_run:
-        email_sender = EmailSender(config)
+    async with AsyncBrowserManager(config) as browser:
+        semaphore = asyncio.Semaphore(max_concurrent_tickers)
 
-    # Process each ticker
-    with BrowserManager(config) as browser:
-        for ticker_info in tickers:
+        async def process_ticker(ticker_info: dict) -> tuple[str, dict[str, Path] | Exception]:
             symbol = ticker_info["symbol"]
             name = ticker_info.get("name", symbol)
 
-            logger.info(f"Processing {symbol} ({name})")
+            async with semaphore:
+                logger.info(f"Processing {symbol} ({name})")
+                try:
+                    paths = await chart_capture.capture(browser, symbol)
+                    return (symbol, paths)
+                except Exception as e:
+                    logger.error(f"Error capturing {symbol}: {e}")
+                    return (symbol, e)
 
-            try:
-                # Capture daily and weekly charts
-                with browser.new_page() as page:
-                    chart_paths = chart_capture.capture(page, symbol)
-                    screenshots[symbol] = chart_paths
+        # Capture all tickers in parallel (limited by semaphore)
+        capture_results = await asyncio.gather(
+            *[process_ticker(t) for t in tickers],
+            return_exceptions=True
+        )
 
-                # Analyze with Claude
-                if not dry_run:
-                    result = analyzer.analyze(chart_paths, symbol)
-                    results.append(result)
+        for result in capture_results:
+            if isinstance(result, Exception):
+                errors.append(("unknown", result))
+            else:
+                symbol, paths_or_error = result
+                if isinstance(paths_or_error, Exception):
+                    errors.append((symbol, paths_or_error))
+                else:
+                    screenshots[symbol] = paths_or_error
 
-                    # Log recommendation
-                    rec = result.recommendation
-                    logger.info(
-                        f"{symbol}: {rec.get('signal', 'N/A')} "
-                        f"(Confidence: {rec.get('confidence', 'N/A')})"
-                    )
+    # Phase 2: Batch Claude analysis
+    results: list[AnalysisResult] = []
+    if not dry_run and screenshots:
+        logger.info(f"Starting batch analysis for {len(screenshots)} tickers")
+        results = await analyzer.analyze_batch(screenshots, max_concurrent=5)
 
-            except Exception as e:
-                logger.error(f"Error processing {symbol}: {e}")
-                errors.append((symbol, e))
-                continue
+        # Log recommendations
+        for result in results:
+            rec = result.recommendation
+            logger.info(
+                f"{result.symbol}: {rec.get('signal', 'N/A')} "
+                f"(Confidence: {rec.get('confidence', 'N/A')})"
+            )
 
-    # Send email report
+    # Phase 3: Send email report (sync is fine - runs once at end)
     if send_email and not dry_run and results:
+        email_sender = EmailSender(config)
         try:
             email_sender.send_report(results, screenshots)
         except Exception as e:
@@ -192,13 +215,16 @@ def main() -> int:
 
     logger.info(f"Analyzing {len(tickers)} tickers: {', '.join(t['symbol'] for t in tickers)}")
 
-    # Run analysis
+    # Run async analysis
     try:
-        results, screenshots = run_analysis(
-            config=config,
-            tickers=tickers,
-            send_email=not args.no_email,
-            dry_run=args.dry_run,
+        results, screenshots = asyncio.run(
+            run_analysis_async(
+                config=config,
+                tickers=tickers,
+                send_email=not args.no_email,
+                dry_run=args.dry_run,
+                max_concurrent_tickers=args.max_concurrent,
+            )
         )
 
         # Print summary to console

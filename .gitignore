@@ -44,5 +44,8 @@ logs/*.log
 *.swo
 *~
 
+# Claude Code
+.claude/
+
 # Jupyter
 .ipynb_checkpoints/
