@@ -4,11 +4,12 @@ Automated Python workflow that captures stock charts from StockCharts.com, analy
 
 ## Features
 
-- 📊 Automated chart capture from StockCharts.com using Playwright
-- 🤖 AI-powered technical analysis using Claude (Edwards & Magee methodology)
-- 📧 HTML email reports with embedded charts and color-coded alerts
-- ⏰ Scheduled daily execution via macOS launchd
-- 🔧 Configurable ticker list and analysis parameters
+- **Automated chart capture** from StockCharts.com (daily/weekly candlestick + Point & Figure)
+- **AI-powered analysis** using Claude with Edwards & Magee methodology
+- **Parallel processing** - multiple tickers and chart types captured concurrently
+- **HTML email reports** with embedded charts and color-coded BUY/SELL/HOLD signals
+- **Scheduled execution** via macOS launchd (runs daily at 6:30 AM)
+- **Configurable** ticker watchlist and analysis parameters
 
 ## Prerequisites
 
@@ -93,10 +94,11 @@ python -m src.main --dry-run
 
 | Option | Description |
 |--------|-------------|
-| `--ticker SYMBOL` | Analyze single ticker instead of configured list |
+| `--ticker`, `-t` | Analyze specific ticker(s) instead of configured list |
 | `--no-email` | Skip sending email report |
 | `--no-headless` | Show browser window (for debugging) |
 | `--dry-run` | Capture charts only, skip analysis and email |
+| `--max-concurrent N` | Max parallel tickers (default: 3) |
 | `--verbose`, `-v` | Enable debug logging |
 
 ## Scheduling with launchd
@@ -156,12 +158,12 @@ stockcharts/
 │   ├── tickers.yaml        # Stock watchlist
 │   └── .env                # Secrets (API keys, passwords)
 ├── src/
-│   ├── main.py             # Entry point / orchestrator
-│   ├── browser.py          # Playwright browser management
-│   ├── chart_capture.py    # StockCharts navigation & screenshots
-│   ├── claude_analysis.py  # Claude API integration
-│   ├── email_sender.py     # Gmail SMTP sender
-│   └── utils.py            # Utilities and helpers
+│   ├── main.py             # Async orchestrator with parallel processing
+│   ├── browser.py          # AsyncBrowserManager (Playwright lifecycle)
+│   ├── chart_capture.py    # StockCharts automation & screenshots
+│   ├── claude_analysis.py  # Claude API with batch analysis
+│   ├── email_sender.py     # Gmail SMTP with embedded images
+│   └── utils.py            # Config loading, logging, retry decorators
 ├── templates/
 │   └── email_template.html # HTML email template
 ├── output/screenshots/     # Captured chart images
@@ -171,6 +173,20 @@ stockcharts/
 ├── requirements.txt
 └── README.md
 ```
+
+## Architecture
+
+The workflow uses async/await throughout for parallel processing:
+
+```
+main.py (asyncio.run)
+├── Parallel ticker capture (up to 3 concurrent by default)
+│   └── Per ticker: candlestick + P&F charts in parallel browser contexts
+├── Batch Claude API calls (up to 5 concurrent)
+└── Single email with all results
+```
+
+**Performance**: 10 tickers complete in ~1-2 minutes vs ~5+ minutes sequential.
 
 ## Edwards & Magee Analysis
 
