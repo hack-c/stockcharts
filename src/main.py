@@ -166,6 +166,34 @@ async def run_analysis_async(
             logger.error(f"Failed to send email report: {e}")
             errors.append(("email", e))
 
+    # Phase 4: Write JSON results for downstream consumption (e.g. Carlos morning brief)
+    if results:
+        import json
+        results_path = get_project_root() / "output" / "results.json"
+        results_path.parent.mkdir(parents=True, exist_ok=True)
+        results_data = {
+            "run_at": datetime.now().isoformat(),
+            "results": [
+                {
+                    "symbol": r.symbol,
+                    "analysis_date": r.analysis_date,
+                    "primary_trend": r.primary_trend,
+                    "secondary_trend": r.secondary_trend,
+                    "patterns_identified": r.patterns_identified,
+                    "support_levels": r.support_levels,
+                    "resistance_levels": r.resistance_levels,
+                    "volume_assessment": r.volume_assessment,
+                    "rsi": r.rsi,
+                    "recommendation": r.recommendation,
+                    "key_observations": r.key_observations,
+                    "summary": r.summary,
+                }
+                for r in results
+            ],
+        }
+        results_path.write_text(json.dumps(results_data, indent=2))
+        logger.info(f"Results written to {results_path}")
+
     # Summary
     logger.info(f"Completed: {len(results)} analyzed, {len(errors)} errors")
 

@@ -7,13 +7,13 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/charlie/Documents/projects/stockcharts/.venv/bin/python</string>
+        <string>/Users/chack/stockcharts/.venv/bin/python</string>
         <string>-c</string>
         <string>import time; time.sleep(30); import runpy; runpy.run_module('src.main', run_name='__main__')</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/charlie/Documents/projects/stockcharts</string>
+    <string>/Users/chack/stockcharts</string>
 
     <key>StartCalendarInterval</key>
     <dict>
@@ -24,10 +24,10 @@
     </dict>
 
     <key>StandardOutPath</key>
-    <string>/Users/charlie/Documents/projects/stockcharts/logs/launchd-stdout.log</string>
+    <string>/Users/chack/stockcharts/logs/launchd-stdout.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/charlie/Documents/projects/stockcharts/logs/launchd-stderr.log</string>
+    <string>/Users/chack/stockcharts/logs/launchd-stderr.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>
