@@ -49,3 +49,4 @@ logs/*.log
 
 # Jupyter
 .ipynb_checkpoints/
+output/results.json
