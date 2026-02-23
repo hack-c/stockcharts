@@ -8,8 +8,8 @@
     <key>ProgramArguments</key>
     <array>
         <string>/Users/charlie/Documents/projects/stockcharts/.venv/bin/python</string>
-        <string>-m</string>
-        <string>src.main</string>
+        <string>-c</string>
+        <string>import time; time.sleep(30); import runpy; runpy.run_module('src.main', run_name='__main__')</string>
     </array>
 
     <key>WorkingDirectory</key>
@@ -34,9 +34,5 @@
         <key>PATH</key>
         <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     </dict>
-
-    <!-- Run job if Mac was asleep at scheduled time -->
-    <key>StartInterval</key>
-    <integer>0</integer>
 </dict>
 </plist>
